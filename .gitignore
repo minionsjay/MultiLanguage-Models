@@ -1,0 +1,15 @@
+# Model weights (too large, stored on HuggingFace)
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+
+# Python
+__pycache__/
+*.pyc
+
+# Evaluation outputs
+binary/eval_results/*.json
+binary/eval_results/*.csv
+
