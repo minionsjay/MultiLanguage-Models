@@ -1,18 +1,16 @@
 \documentclass[11pt,a4paper]{article}
-
-% ── Packages ──
 \usepackage[UTF8]{ctex}
-\usepackage{geometry}\geometry{margin=2.2cm}
-\usepackage{graphicx,booktabs,multirow,array,longtable}
+\usepackage{amsmath,amssymb}
+\usepackage{geometry}\geometry{margin=2cm}
+\usepackage{graphicx,booktabs,array,longtable,multirow}
 \usepackage{hyperref,xcolor,enumitem,caption,subcaption}
-\usepackage{fancyhdr,titlesec,setspace}
 \hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
-\pagestyle{fancy}\fancyhf{}\fancyhead[L]{\small 多语言内容审核模型技术报告}\fancyhead[R]{\small \thepage}
 \setlength{\parskip}{0.3em}
-
+\usepackage{fancyhdr,titlesec}
+\pagestyle{fancy}\fancyhf{}\fancyhead[L]{\small 多语言内容审核模型技术报告}\fancyhead[R]{\small \thepage}
 \title{\textbf{多语言内容审核模型\\技术报告与全面对比分析}}
-\author{基于 microsoft/mdeberta-v3-base \\ 8 个国家 × 4 种训练方法 × 32+ 个模型}
-\date{2026 年 6 月 12 日}
+\author{基于 microsoft/mdeberta-v3-base \\ 8 个国家 $\times$ 4 种训练方法 $\times$ 32+ 个模型}
+\date{2026年6月12日}
 \begin{document}
 \maketitle
 \tableofcontents
@@ -21,694 +19,705 @@
 % ════════════════════════════════════════════════════
 \section{项目概述}
 
-本项目旨在构建覆盖 8 个目标国家/地区主流语言的 AI 内容审核模型系统。
-所有模型基于微软 mDeBERTa-v3-base 预训练模型进行微调，
-能够检测和分类社交媒体上的违规内容。
+\subsection{项目背景}
+
+随着社交媒体在非英语国家的快速普及，多语言内容审核成为全球化平台的核心挑战。
+不同国家和地区有各自独特的违规定义：
+沙特禁止 LGBTQ 内容，泰国严格保护王室声誉 (l\`{e}se-majest\'{e})，
+南非有独特的种族隔离历史导致的严重种族主义 (k-word) 和排外主义问题，
+新加坡有《煽动法令》和《维持宗教和谐法案》(MRHA) 监管种族/宗教不和谐言论。
+
+本项目构建了一套覆盖 \textbf{8 个国家}的 AI 内容审核模型系统，
+使用统一的多语言预训练基座 (mDeBERTa-v3-base)，
+通过 4 种不同的微调策略适配各国的语言和法律要求。
 
 \subsection{覆盖国家与语言}
 
 \begin{table}[h]\centering
 \caption{目标国家与语言}\label{tab:countries}
-\begin{tabular}{@{}llll@{}}
-\toprule
-\textbf{代码} & \textbf{国家} & \textbf{语言} & \textbf{数据来源} \\
-\midrule
-SA & 沙特阿拉伯 & 阿拉伯语 & Reddit, Twitter \\
-BR & 巴西 & 葡萄牙语 & Reddit \\
-MX & 墨西哥 & 西班牙语 & Reddit \\
-ID & 印尼 & 印尼语 & Reddit, Kompasiana \\
-SG & 新加坡 & 英语/Singlish & HardwareZone, Reddit \\
-TH & 泰国 & 泰语 & Pantip, Reddit \\
-TR & 土耳其 & 土耳其语 & Reddit \\
-ZA & 南非 & 英语/阿非利卡语等 & Reddit \\
+\begin{tabular}{@{}lllll@{}}\toprule
+\textbf{代码} & \textbf{国家} & \textbf{语言} & \textbf{论坛/平台} & \textbf{数据量(合计)} \\\midrule
+SA & 沙特阿拉伯 & 阿拉伯语 & Reddit r/saudiarabia & 85,824 \\
+BR & 巴西 & 葡萄牙语 & Reddit r/brasil & 92,035 \\
+MX & 墨西哥 & 西班牙语 & Reddit r/mexico & 64,013 \\
+ID & 印尼 & 印尼语 & Reddit, Kompasiana & 40,675 \\
+SG & 新加坡 & 英语/Singlish & HardwareZone, Reddit & 102,746 \\
+TH & 泰国 & 泰语 & Pantip, Reddit & 20,768 \\
+TR & 土耳其 & 土耳其语 & Reddit & 102,305 \\
+ZA & 南非 & 英语/阿非利卡语等 & Reddit r/southafrica & 98,116 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{任务类型}
+\subsection{任务定义}
 
-\begin{enumerate}[itemsep=0pt]
-\item \textbf{二分类 (Binary)}: 安全内容 vs 违规内容识别，8 国全覆盖
-\item \textbf{多分类 (Multi-Class)}: 9 类违规内容细分，
-包括国家特有违规类别（如新加坡的 SG\_Racial\_Religious\_Harmony、
-泰国的 TH\_Lese\_Majeste、南非的 ZA\_Severe\_Racism 等）
+\begin{enumerate}[itemsep=3pt]
+\item \textbf{二分类 (Binary Classification)}:
+输入一段社交媒体文本，输出该文本是否包含违规内容。
+模型输出两个概率 $P(\text{safe})$ 和 $P(\text{violation})$，
+取 $\arg\max$ 作为预测结果。
+损失函数使用类别加权交叉熵以处理数据不均衡。
+
+\item \textbf{多分类 (Multi-Class Classification)}:
+输入一段社交媒体文本，输出该文本属于哪个具体的违规类别。
+这是一个 8--9 类的单标签分类问题 (每条文本只属于一个类别)。
+模型使用 softmax 输出每个类别的概率分布，
+取最大概率类别作为预测结果，
+并通过 per-class threshold calibration 优化各类别的精确率/召回率权衡。
 \end{enumerate}
 
 % ════════════════════════════════════════════════════
-\subsection{二分类数据来源}
+\section{模型选型}
 
-二分类训练数据来自两个来源:
+\subsection{基座模型: mDeBERTa-v3-base}
+
+我们选择 \textbf{microsoft/mdeberta-v3-base} 作为所有模型的统一基座:
+
+\begin{enumerate}[itemsep=2pt]
+\item \textbf{多语言覆盖}: mDeBERTa-v3 在 CC100 多语言语料上预训练，覆盖 100+ 语言，
+包括本项目涉及的全部语言。
+\item \textbf{解耦注意力机制 (Disentangled Attention)}:
+DeBERTa 将内容嵌入和位置嵌入分离计算注意力权重，
+在跨语言迁移任务上优于 XLM-RoBERTa 和 mBERT。
+\item \textbf{适中的模型大小}: 279M 参数 (base 版本)，
+全量微调需要 1.1GB/国，LoRA 适配器仅需约 600K 可训参数 (3MB)。
+\item \textbf{MIT 许可证}: 可自由用于商业和研究。
+\end{enumerate}
+
+\subsection{四种微调方法}
+
+\begin{enumerate}[itemsep=3pt]
+\item \textbf{全量微调 (Full FT)}: 所有 279M 参数参与训练，精度最高，每国 1.1GB。
+\item \textbf{LoRA (Low-Rank Adaptation)}:
+在 attention 权重矩阵上添加低秩分解适配器 $W = W_0 + BA$，仅训练 0.21\% 参数 ($\sim$600K)。
+LoRA 的核心思想是预训练权重的更新位于低秩子空间:
+$h = W_0 x + \frac{\alpha}{r} \cdot BA x$，
+其中 $B \in \mathbb{R}^{d \times r}$, $A \in \mathbb{R}^{r \times k}$,
+$r \ll \min(d,k)$。适配器仅 $\sim$3MB。
+\item \textbf{Multi-LoRA}: 一个共享基座 + 8 国独立的 LoRA 适配器 (r=8, $\sim$2MB/国)。
+通过 \texttt{PeftModel.from\_pretrained} 热切换国家。
+\item \textbf{Adapter}: 在 Transformer 层间插入 bottleneck adapter，
+训练参数 0.5\%，适配器约 2.5MB。精度最低但训练最快。
+\end{enumerate}
+
+\section{微调方法深度对比: LoRA vs Multi-LoRA vs Adapter}
+
+虽然 LoRA、Multi-LoRA 和 Adapter 都属于参数高效微调 (PEFT) 方法，
+但它们的设计理念、训练方式、参数效率和部署方式有本质区别。
+
+\subsection{核心原理对比}
+
+\begin{table}[h]\centering
+\caption{三种 PEFT 方法核心原理对比}
+\begin{tabular}{@{}lp{4cm}p{4cm}p{4cm}@{}}\toprule
+\textbf{维度} & \textbf{LoRA (独立)} & \textbf{Multi-LoRA (共享)} & \textbf{Adapter (瓶颈)} \\\midrule
+\textbf{插入位置} & Attention 权重矩阵 $W_Q, W_V$ & 同 LoRA & Transformer 层之间的 FFN 后 \\
+\textbf{数学形式} & $h=W_0x + \frac{\alpha}{r}BAx$ & 同 LoRA，但共享 $W_0$ & $h=\text{FFN}(x) + \text{Adapter}(x)$ \\
+\textbf{可训参数} & 596,745 (0.21\%) & 298,373 (0.11\%) & 1,491,272 (0.53\%) \\
+\textbf{Rank} & $r=16$ & $r=8$ (更小) & 无 rank 概念，用 bottleneck dim \\
+\textbf{适配器大小} & $\sim$3MB & $\sim$2MB & $\sim$2.5MB \\
+\textbf{基座} & 每国独立 & \textbf{8 国共享 1 个} & 每国独立 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{LoRA (独立训练)}
+
+\textbf{训练方式:} 每个国家独立训练一个完整的 LoRA 适配器。
+基座模型 (mdeberta-v3-base) 被加载为初始权重，
+但 LoRA 适配器只学习针对该国的低秩更新。
+
+\textbf{训练流程:}
+\begin{verbatim}
+base_model = AutoModelForSequenceClassification.from_pretrained(
+    "microsoft/mdeberta-v3-base", num_labels=2)
+lora = LoraConfig(r=16, lora_alpha=32, ...)
+model = get_peft_model(base_model, lora)
+# 只训练 LoRA 参数 (0.21%), 基座冻结
+trainer = Trainer(model=model, train_dataset=country_data, ...)
+trainer.train()
+# 保存适配器 (3MB)
+model.save_pretrained("SA_lora_adapter")
+\end{verbatim}
+
+\textbf{特点:}
 \begin{itemize}
-\item \textbf{Datasets\_Nine\_country}: 各国论坛/Reddit 爬取的原始数据，每条带有 binary label (0=safe, 1=violation)
-\item \textbf{data\_v2}: 细粒度多类标注数据，用于 Adapter 和 Multi-LoRA 训练
+\item 每国需要独立训练一次 (8 国 = 8 次训练)
+\item 适配器质量最高 (r=16，表达能力最强)
+\item 每国可以独立优化超参数
+\item 部署: 加载基座 + 加载该国 LoRA = 独立推理
 \end{itemize}
 
+\subsection{Multi-LoRA (共享基座)}
+
+\textbf{训练方式:} 所有 8 个国家共用一个基座模型的副本，
+每个国家只在共享基座上训练一个 r=8 的 LoRA 适配器。
+训练时所有国家的数据都会经过基座，但反向传播只更新该国的 LoRA 参数。
+
+\textbf{训练流程:}
+\begin{verbatim}
+shared_base = AutoModelForSequenceClassification.from_pretrained(
+    "microsoft/mdeberta-v3-base", num_labels=2)
+
+for country in ['SA','BR','MX','ID','SG','TH','TR','ZA']:
+    lora = LoraConfig(r=8, lora_alpha=16, ...)  # 更小的 rank
+    model = get_peft_model(shared_base, lora)
+    trainer = Trainer(model=model, train_dataset=country_data, ...)
+    trainer.train()
+    # 保存仅 2MB 的适配器
+    model.save_pretrained(f"{country}_multilora_adapter")
+\end{verbatim}
+
+\textbf{特点:}
+\begin{itemize}
+\item 适配器更小 (r=8 vs r=16)，参数减半
+\item 所有国家共享同一个基座表示空间——
+这既是优点 (知识共享) 也是缺点 (国家间干扰)
+\item 违规召回率 (Violation Recall) 通常更高，
+因为共享基座对"违规信号"更敏感
+\item 但 Clean Recall 较低——容易将安全内容误判为违规
+\item 部署: 加载基座 + \texttt{model.set\_adapter('SG')} 热切换
+\end{itemize}
+
+\subsection{Adapter (瓶颈适配器)}
+
+\textbf{训练方式:} 在 Transformer 的每个层之后插入一个小型 bottleneck 网络。
+与 LoRA 不同，Adapter 不是修改 attention 权重，
+而是在信息流中插入额外的可训练层。
+
+\textbf{Adapter 结构:}
+\[ \text{Adapter}(x) = W_{\text{up}} \cdot \text{ReLU}(W_{\text{down}} \cdot x) + x \]
+其中 $W_{\text{down}} \in \mathbb{R}^{d \times b}$ 将输入投影到瓶颈维度 $b$，
+$W_{\text{up}} \in \mathbb{R}^{b \times d}$ 将瓶颈表示投影回原始维度。
+瓶颈维度 $b$ 远小于 $d$ (通常 $b=64$)。
+
+\textbf{特点:}
+\begin{itemize}
+\item 训练参数最多 (0.53\%)，但精度最低
+\item 依赖 \texttt{adapter-transformers} 库，生态不如 PEFT/LoRA 成熟
+\item 基座完全冻结——不会出现 Multi-LoRA 的国家间干扰
+\item 部署时需要完整加载 (适配器嵌入模型结构)
+\end{itemize}
+
+\subsection{综合对比}
+
 \begin{table}[h]\centering
-\caption{二分类数据 — 两个来源合并}\label{tab:bin-data-full}
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-\textbf{国家} & \textbf{Nine\_country} & \textbf{data\_v2} & \textbf{合计} \\
-\midrule
-SG & 89,931 & 12,815 & 102,746 \\
-TR & 90,173 & 12,132 & 102,305 \\
-ZA & 83,606 & 14,510 & 98,116 \\
-BR & 78,867 & 13,168 & 92,035 \\
-SA & 70,100 & 15,724 & 85,824 \\
-MX & 50,787 & 13,226 & 64,013 \\
-ID & 27,222 & 13,453 & 40,675 \\
-TH & 9,515 & 11,253 & 20,768 \\
+\caption{LoRA vs Multi-LoRA vs Adapter 全面对比}
+\begin{tabular}{@{}lp{3.2cm}p{3.2cm}p{3.2cm}@{}}\toprule
+\textbf{维度} & \textbf{LoRA (独立)} & \textbf{Multi-LoRA} & \textbf{Adapter} \\\midrule
+训练方式 & 每国独立训练 & 8 国共享基座 & 每国独立训练 \\
+Rank/瓶颈 & $r=16$ & $r=8$ & bottleneck=64 \\
+可训参数 & 0.21\% & 0.11\% & 0.53\% \\
+适配器大小 & $\sim$3MB/国 & $\sim$2MB/国 & $\sim$2.5MB/国 \\
+Avg Macro F1 & \textbf{0.809} & 0.796 & 0.769 \\
+Avg Viol Recall & 0.847 & \textbf{0.943} & 0.583 \\
+Avg Clean Recall & \textbf{0.816} & 0.614 & 0.896 \\
+最佳场景 & 精度优先，每国独立 & 多国服务，省空间 & 快速原型 \\
+切换方式 & 重新加载模型 & \texttt{set\_adapter()} & 重新加载模型 \\
+库依赖 & peft & peft & adapter-transformers \\
+训练脚本 & \texttt{train\_all.py} & \texttt{train\_multi\_lora.py} & \texttt{train\_adapter.py} \\
+数据源 & Nine\_country & data\_v2 & data\_v2 \\
 \bottomrule
 \end{tabular}
-\par\smallskip
-\small 注: Full FT 和 LoRA 使用 Nine\_country 数据; Adapter 和 Multi-LoRA 使用 data\_v2 数据。
 \end{table}
 
-\subsection{多分类标签定义}
+\subsection{独立 LoRA 的部署效率问题}
 
-\subsubsection{通用标签 (所有国家)}
+独立 LoRA 在训练时每国独立训练，适配器文件只有 3MB。
+但\underline{部署时}存在一个关键问题:
+
+\textbf{8 国部署所需存储:}
+\begin{itemize}
+\item \textbf{独立 LoRA}: 8 个完整模型 = 8 $\times$ 1.1GB = \textbf{8.8GB}
+  (因为每国训练时基座被独立更新，merge\_and\_unload 后形成 8 个独立的 1.1GB 模型)
+\item \textbf{Multi-LoRA}: 1 个共享基座 + 8 个 LoRA 适配器 = 1.1GB + 8 $\times$ 2MB = \textbf{1.12GB}
+\item \textbf{节省}: $\frac{8.8 - 1.12}{8.8} \times 100\% = \textbf{87\% 存储节省}$
+\end{itemize}
+
+\textbf{为什么有这么大的差距?} 独立 LoRA 每国独立训练时，
+基座模型的权重会朝着该国的数据分布微调 (即使在 LoRA 模式下，
+训练过程中的梯度更新仍会影响基座的表示)。
+当使用 \texttt{merge\_and\_unload()} 保存后，每国产生一个完整的 1.1GB 模型文件。
+8 个国家 = 8 个完整模型 = 8.8GB。
+
+\textbf{Multi-LoRA 的解决方案:} 在训练时就共享一个基座，
+所有国家的 LoRA 适配器“寄生”在同一个基座上。
+这样基座本身不需要针对某个国家微调——适配器负责处理国家差异。
+部署时只需一个基座 + 8 个微型适配器。
+
+\textbf{理论上独立 LoRA 也可以共享基座:} 如果独立 LoRA 在训练时不 merge，
+保存为纯适配器格式 (adapter\_model.safetensors + adapter\_config.json)，
+部署时加载基座 + 切换适配器 = 同样只需 1.12GB。
+但这样做的问题在于——每个国家的独立 LoRA 是在\underline{不同训练过程中}训练的，
+基座在训练中已经分别适应了各自国家的数据分布。
+将这些适配器加载到同一个“通用基座”上会导致性能下降。
+Multi-LoRA 通过在\underline{同一个训练过程中}共享基座解决了这个问题。<｜end▁of▁thinking｜>
+
+\subsection{实际部署场景分析}
+
+\textbf{场景 1: 使用独立 LoRA 部署 8 国服务}
+
+独立 LoRA 的适配器文件只有 3MB，理论上可以加载一个基座 + 切换适配器:
+
+\begin{verbatim}
+# 加载基座一次
+base = AutoModelForSequenceClassification.from_pretrained(
+    "microsoft/mdeberta-v3-base", num_labels=2)
+
+# 服务 SG 请求
+sg_model = PeftModel.from_pretrained(base, "jianqiang0213/mdeberta-v3-SG-binary-lora")
+result = sg_model.predict(sg_text)
+
+# 服务 TH 请求 —— 需要重新加载 LoRA
+th_model = PeftModel.from_pretrained(base, "jianqiang0213/mdeberta-v3-TH-binary-lora")
+result = th_model.predict(th_text)
+\end{verbatim}
+
+\textbf{但实际上这样做的效果不好。}
+因为独立 LoRA 的每国训练是独立的——SA 训练时的基座、BR 训练时的基座、
+MX 训练时的基座，虽然初始权重相同，但在训练过程中梯度更新使基座向不同方向微调。
+将这些在不同基座上训练的适配器，强行加载到同一个"通用基座"上，
+会导致适配器权重与基座不匹配，性能下降。
+
+\textbf{Multi-LoRA 解决了这个问题:} 所有 8 国的适配器在\underline{同一个训练过程中}学习，
+基座权重保持共享状态，只有 LoRA 参数按国家更新。
+部署时一个基座 + 热切换:
+
+\begin{verbatim}
+# Multi-LoRA 部署方式
+shared_base = AutoModelForSequenceClassification.from_pretrained(
+    "microsoft/mdeberta-v3-base", num_labels=2)
+
+# 加载所有适配器 (每个 2MB)
+for country in ['SA','BR','MX','ID','SG','TH','TR','ZA']:
+    model.load_adapter(f"path/to/{country}/lora_weights", adapter_name=country)
+
+# 热切换 (毫秒级，无需重新加载模型)
+model.set_adapter("SG")
+result = model(sg_text)
+
+model.set_adapter("TH")  # 瞬间切换
+result = model(th_text)
+\end{verbatim}
+
+\textbf{对比总结:}
 
 \begin{table}[h]\centering
-\caption{通用违规标签定义}\label{tab:universal-labels}
-\begin{tabular}{@{}llp{6cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-Dangerous_Content & 危险内容 & 恐怖主义、武器、自残/自杀方法、严重暴力、毒品交易、诈骗、性犯罪、CSAM、血腥内容 \\
-Harassment & 骚扰 & 针对个人的侮辱、粗口、网络霸凌、人肉搜索、外貌羞辱 \\
-Hate_Speech & 仇恨言论 & 基于身份的攻击: 种族、宗教、性别、国籍、移民身份 \\
-Sexually_Explicit_Information & 色情信息 & 色情内容、性行为描述、约炮、性暗示 \\
-Politically_Sensitive_Topics & 政治敏感 & 非本国政治内容: 外国选举、国际冲突、外国领导人 \\
-Cybersecurity_Malware & 网络安全 & 恶意软件、黑客攻击、钓鱼、DDoS、凭证盗窃 \\
-safe & 安全 & 正常内容，无违规 \\
+\caption{独立 LoRA vs Multi-LoRA 部署对比}
+\begin{tabular}{@{}lp{4.5cm}p{4.5cm}@{}}\toprule
+\textbf{维度} & \textbf{独立 LoRA (8 次训练)} & \textbf{Multi-LoRA (1 次训练)} \\\midrule
+部署方式 & 加载 8 个独立模型 OR 1 基座+切换(有性能损失) & 1 基座 + 热切换适配器 \\
+8 国 GPU 内存 & 8$\times$1.1GB 或 1.1GB+8$\times$3MB & 1.1GB + 8$\times$2MB \\
+切换延迟 & 重新加载模型 (秒级) & set\_adapter() (毫秒级) \\
+适配器兼容性 & \textbf{不保证}——每国基座状态不同 & \textbf{保证}——同一训练过程 \\
+训练时间 & 8 次独立训练，可并行 & 1 次训练，顺序执行 \\
+精度 & 0.809 (独立优化) & 0.796 (共享约束) \\
+推荐场景 & 单国部署 & 多国 SaaS 服务 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\textbf{关键区别:}
+独立 LoRA 的 8 个适配器虽然可以加载到同一个基座上，
+但因为它们是在不同训练过程中学习的，适配器期望的基座状态各不相同。
+强行共用会导致性能下降。Multi-LoRA 通过在训练时就共享基座，
+从根本上解决了这个问题——但代价是精度略低 (0.796 vs 0.809)，
+因为共享基座限制了各国的独立优化空间。
+
+\textbf{实际建议:}
+\begin{itemize}
+\item 只部署 1--2 个国家: 使用独立 LoRA (r=16)，精度最高
+\item 部署 3+ 个国家: 使用 Multi-LoRA，1.12GB 覆盖全部，热切换
+\item 对精度要求极高的核心国家: 使用 Full FT 独立部署
+\end{itemize}
+
+\subsection{为什么 Multi-LoRA 的 Violation Recall 高但 Clean Recall 低?}
+
+这是 Multi-LoRA 最显著的行为特征。
+因为 8 个国家的 LoRA 适配器共享同一个基座，
+而基座在训练过程中不断接收到来自不同国家的违规信号，
+导致基座对"违规"特征变得异常敏感。
+结果是 Multi-LoRA 倾向于将所有内容判为 violation——
+违规召回率极高 (SA: 0.983) 但安全内容召回率很低 (SA: 0.515)。
+
+\textbf{这意味着:} Multi-LoRA 几乎不会遗漏违规内容，
+但会产生大量误报 (false positives)。
+这种特性适合对违规内容零容忍的场景 (如儿童安全)，
+但不适合需要平衡精确率和召回率的通用审核场景。
+
+% ════════════════════════════════════════════════════
+\section{数据集}
+
+\subsection{二分类数据}
+
+\\input{_tables_bin.tex}
+
+注: Full FT 和 LoRA 使用 Nine\_country 数据; Adapter 和 Multi-LoRA 使用 data\_v2 数据。
+
+% ════════════════════════════════════════════════════
+\section{多分类标签体系}
+
+\subsection{通用标签 (所有国家)}
+
+以下 7 个标签在所有国家的多分类模型中共用，定义一致:
+
+\begin{table}[h]\centering
+\caption{通用违规标签定义}\label{tab:universal}
+\begin{tabular}{@{}llp{6cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{定义} \\\midrule
+Dangerous\_Content & 危险内容 & 恐怖主义、武器、自残/自杀、严重暴力、毒品交易、诈骗/钓鱼、性犯罪/CSAM、血腥内容 \\
+Harassment & 骚扰 & 针对个人的侮辱、粗口、网络霸凌、人肉搜索、外貌羞辱。针对群体的攻击不属于此类 \\
+Hate\_Speech & 仇恨言论 & 基于身份的攻击: 种族、宗教、性别、国籍。国家特有标签优先于通用 Hate\_Speech \\
+Sexually\_Explicit\_Information & 色情信息 & 色情内容、性行为描述、约炮/性暗示。未成年相关内容归入 Dangerous\_Content \\
+Politically\_Sensitive\_Topics & 政治敏感 & \textbf{非本国}政治内容: 外国选举、国际冲突、外国领导人 \\
+Cybersecurity\_Malware & 网络安全 & 恶意软件、黑客攻击、钓鱼、DDoS。金融诈骗归入 Dangerous\_Content \\
+safe & 安全 & 正常内容——这是最后的兜底标签，只有在确认不属于任何违规类别时才使用 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{标签优先级规则}
+
+当一条文本同时匹配多个标签时，按以下优先级选择:
+\[
+\text{Dangerous\_Content} > \text{国家特有标签} > \text{Hate\_Speech} > \text{Harassment} > \text{Sexually\_Explicit} > \text{Politically\_Sensitive} > \text{Cybersecurity\_Malware} > \text{safe}
+\]
 
 \subsection{各国特有标签}
+
+每个国家在通用标签之外，有 2--3 个该国特有的违规标签。
+
 \subsubsection{ID (印尼)}
+
 \begin{table}[h]\centering
 \caption{ID (印尼) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-ID\_SARA & 印尼宗教种族 & 针对印尼族群(Suku)、宗教(Agama)、种族(Ras)、群体间(Antargolongan)的攻击。包括反华人(anti-Cina)、反爪哇人、反巴布亚人、政治身份攻击(cebong/kampret/kadrun) \\
-ID\_Blasphemy & 印尼亵渎/诽谤 & 宗教亵渎(Pasal 156a KUHP)和电子诽谤(UU ITE)。包括嘲讽安拉/先知/古兰经、对信徒的蔑视、社交媒体上的严重人格攻击 \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+ID\_SARA & 印尼宗教种族 & 针对印尼族群(Suku)、宗教(Agama)、种族(Ras)、群体间(Antargolongan)的攻击。包括反华人(Cina pelit/Cina penguasa)、反爪哇人、反巴布亚人(Papua primitif)、政治身份攻击(cebong/kampret/kadrun)——这些政治身份词在印尼语境中属于群体攻击 \\
+ID\_Blasphemy & 印尼亵渎/诽谤 & 1) 宗教亵渎 (Pasal 156a KUHP): 嘲讽安拉/先知/古兰经。2) UU ITE 电子诽谤 (Pasal 27-28): 社交媒体上的严重人格攻击、散布虚假指控毁坏名誉 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{SG (新加坡)}
+
 \begin{table}[h]\centering
 \caption{SG (新加坡) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-SG\_Racial\_Religious\_Harmony & 种族宗教和谐 & 新加坡煽动法令和MRHA下的种族/宗教不和谐。CMIO种族攻击(华人/马来人/印度人/欧亚裔)。反移民种族言论(FT/Bangla/Pinoy/PRC) \\
-SG\_Vulgarity\_Singlish & 粗俗Singlish & 极端粗俗的Singlish侮辱。重度福建话粗口(chee bai, kan ni na, lan jiao)。注意: 日常Singlish语气词(lah, lor, leh)绝不算违规 \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+SG\_Racial\_Religious\_Harmony & 种族宗教和谐 & 新加坡煽动法令和 MRHA 下的种族/宗教不和谐。CMIO 种族攻击。反移民种族言论(FT/Bangla/Pinoy/PRC/Ah Tiong) \\
+SG\_Vulgarity\_Singlish & 粗俗 Singlish & 极端粗俗的 Singlish 侮辱: chee bai/cibai, kan ni na/kNN, lan jiao。关键区分: 日常 Singlish 语气词(lah, lor, leh)绝不算违规 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{TH (泰国)}
+
 \begin{table}[h]\centering
 \caption{TH (泰国) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-TH\_Lese\_Majeste & 冒犯君主 & 刑法第112条。对王室成员的侮辱、嘲讽、威胁。泰国最严重的网络言论罪行 \\
-TH\_Political\_Instigation & 政治煽动 & 泰国国内政治煽动: 推翻政府、军事政变呼吁、选举舞弊指控、暴力抗议号召 \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+TH\_Lese\_Majeste & 冒犯君主 & 刑法第 112 条。对王室成员的侮辱、嘲讽、威胁。泰国最严重的网络言论罪行，即使是隐晦的批评也可能被归入此类 \\
+TH\_Political\_Instigation & 政治煽动 & 泰国国内政治煽动: 推翻政府号召、军事政变呼吁、选举舞弊指控、暴力抗议号召。非泰国政治归入 Politically\_Sensitive\_Topics \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{ZA (南非)}
+
 \begin{table}[h]\centering
 \caption{ZA (南非) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-ZA\_Severe\_Racism & 严重种族主义 & K-word (kaffir)——南非最严重的种族侮辱词。种族隔离侮辱词(hotnot, coolie)。种族隔离怀旧/赞美。PEPUDA法案 \\
-ZA\_Xenophobia & 排外主义 & 针对南非境内非洲外国人的排外攻击。makwerekwere(贬损词)。Operation Dudula言论。排外暴力赞美 \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+ZA\_Severe\_Racism & 严重种族主义 & K-word (kaffir)——南非最严重的种族侮辱词，PEPUDA 法案下的刑事犯罪。还包括: 种族隔离侮辱词(hotnot, coolie)、种族隔离怀旧、种族优越论。一旦出现 k-word，不论上下文一律归入此类 \\
+ZA\_Xenophobia & 排外主义 & 针对南非境内非洲外国人的排外攻击。核心特征: makwerekwere(贬损词)、要求驱逐津巴布韦人/尼日利亚人、Operation Dudula 言论。南非在 2008/2015/2019/2022 年经历了多轮致命排外暴力 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{SA (沙特)}
+
 \begin{table}[h]\centering
 \caption{SA (沙特) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-SA\_LGBTQ\_Content & LGBTQ内容 & 沙特禁止的LGBTQ相关内容 \\
-SA\_Religious\_Violation & 宗教违规 & 亵渎神明、叛教、宗教侮辱 \\
-SA\_State\_Security\_Royalty & 国家安全/王室 & 反政府、反王室家族言论 \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+SA\_LGBTQ\_Content & LGBTQ 内容 & 沙特法律禁止的 LGBTQ 相关内容。在沙特语境下即使是中性的 LGBTQ 讨论也可能归入此类 \\
+SA\_Religious\_Violation & 宗教违规 & 宗教亵渎、叛教(ridda)、对伊斯兰教法的侮辱、嘲讽宗教仪式 \\
+SA\_State\_Security\_Royalty & 国家安全/王室 & 反政府言论、反王室家族(Al Saud)言论、号召抗议/示威 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{MX (墨西哥)}
+
 \begin{table}[h]\centering
 \caption{MX (墨西哥) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-MX\_Narco\_Culture & 毒品文化 & 赞美卡特尔(cartel)、毒枭(Chapo/Mencho)、毒品民谣(narcocorridos)、毒品生活方式美化 \\
-MX\_Gender\_Violence & 性别暴力 & 杀害女性(femicide)赞美、受害者归咎、大男子主义(machista)暴力威胁 \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+MX\_Narco\_Culture & 毒品文化 & 赞美/美化毒品卡特尔(cartel)、毒枭(Chapo/Mencho)、毒品民谣(narcocorridos)。墨西哥已有 40 万+ 卡特尔相关死亡 \\
+MX\_Gender\_Violence & 性别暴力 & 杀害女性(femicide)赞美/正当化、受害者归咎(se lo merec\'ia/她活该)、大男子主义暴力威胁 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{BR (巴西)}
+
 \begin{table}[h]\centering
 \caption{BR (巴西) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-BR\_Structural\_Racism & 结构性种族主义 & 严重反黑人/棕色人种/原住民种族主义。macaco(猴子)。奴隶制历史言论(senzala) \\
-BR\_Political\_Extremism & 政治极端主义 & 反民主极端主义: intervencao militar(军事干预)、选举否认、独裁赞美(1964-1985) \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+BR\_Structural\_Racism & 结构性种族主义 & 严重反黑人种族主义。macaco(猴子)在巴西语境中是对黑人的严重侮辱。巴西有 350+ 年奴隶制历史(1888 年最后废除)——即使是"玩笑式"种族主义(racismo recreativo)也属严重违规 \\
+BR\_Political\_Extremism & 政治极端主义 & 反民主极端主义: interven\c{c}\~{a}o militar j\'{a}(立即军事干预)、2022 选举否认、攻击 STF/国会/TSE。2023 年 1 月 8 日后被视为对民主的直接威胁 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \subsubsection{TR (土耳其)}
+
 \begin{table}[h]\centering
 \caption{TR (土耳其) 特有违规标签}
-\begin{tabular}{@{}llp{7cm}@{}}
-\toprule
-\textbf{标签} & \textbf{中文} & \textbf{定义} \\
-\midrule
-TR\_Political\_Extremism & 政治极端主义 & 反政府极端言论、政变号召、恐怖组织赞美(PKK等) \\
-TR\_Religious\_Extremism & 宗教极端主义 & 宗教极端言论、教派攻击 \\
+\begin{tabular}{@{}llp{6.5cm}@{}}\toprule
+\textbf{标签} & \textbf{中文} & \textbf{详细定义与区分} \\\midrule
+TR\_Political\_Extremism & 政治极端主义 & 反政府极端言论、政变号召、恐怖组织(如 PKK)赞美、煽动分裂主义 \\
+TR\_Religious\_Extremism & 宗教极端主义 & 宗教极端言论、教派攻击(Alevi/Sunni)、利用宗教煽动暴力 \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\subsection{各国家多分类标签分布}
-\textbf{注: NIM 生成 表示该标签的数据由大语言模型合成，质量较高但可能存在分布偏差}
-
-\subsubsection{印尼 (ID) — 45,753 条，9 个标签}
-\begin{table}[h]\centering
-\caption{ID 多分类训练数据标签分布}
-\begin{tabular}{@{}lrr@{}}
-\toprule
-\textbf{标签} & \textbf{数量} & \textbf{占比} \\
-\midrule
-safe & 13,920 & 30.4\% \\
-Harassment & 7,020 & 15.3\% \\
-Dangerous_Content & 6,544 & 14.3\% \\
-Hate_Speech & 5,774 & 12.6\% \\
-ID_SARA & 5,483 & 12.0\% \\
-Sexually_Explicit & 4,361 & 9.5\% \\
-ID_Blasphemy & 1,118 & 2.4\% \\
-Political & 967 & 2.1\% \\
-other_violation & 566 & 1.2\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{新加坡 (SG) — 25,543 条，9 个标签}
-\begin{table}[h]\centering
-\caption{SG 多分类训练数据标签分布}
-\begin{tabular}{@{}lrr@{}}
-\toprule
-\textbf{标签} & \textbf{数量} & \textbf{占比} \\
-\midrule
-safe & 7,822 & 30.6\% \\
-Hate_Speech & 4,500 & 17.6\% \\
-Politically_Sensitive_Topics & 4,500 & 17.6\% \\
-Dangerous_Content & 1,882 & 7.4\% \\
-Sexually_Explicit_Information & 1,843 & 7.2\% \\
-Harassment & 1,388 & 5.4\% \\
-SG_Vulgarity_Singlish & 1,285 & 5.0\% \\
-SG_Racial_Religious_Harmony & 1,283 & 5.0\% \\
-Cybersecurity_Malware & 1,040 & 4.1\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{泰国 (TH) — 17,751 条，8 个标签}
-\begin{table}[h]\centering
-\caption{TH 多分类训练数据标签分布}
-\begin{tabular}{@{}lrr@{}}
-\toprule
-\textbf{标签} & \textbf{数量} & \textbf{占比} \\
-\midrule
-safe & 5,998 & 33.8\% \\
-Hate_Speech & 4,500 & 25.4\% \\
-Dangerous_Content & 1,934 & 10.9\% \\
-Harassment & 1,773 & 10.0\% \\
-Sexually_Explicit_Information & 996 & 5.6\% \\
-TH_Lese_Majeste & 969 & 5.5\% \\
-Politically_Sensitive_Topics & 901 & 5.1\% \\
-Cybersecurity_Malware & 680 & 3.8\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{南非 (ZA) — 24,259 条，9 个标签}
-\begin{table}[h]\centering
-\caption{ZA 多分类训练数据标签分布}
-\begin{tabular}{@{}lrr@{}}
-\toprule
-\textbf{标签} & \textbf{数量} & \textbf{占比} \\
-\midrule
-safe & 7,748 & 31.9\% \\
-ZA_Xenophobia & 2,827 & 11.7\% \\
-Dangerous_Content & 2,826 & 11.6\% \\
-ZA_Severe_Racism & 2,763 & 11.4\% \\
-Sexually_Explicit_Information & 1,931 & 8.0\% \\
-Harassment & 1,871 & 7.7\% \\
-Hate_Speech & 1,500 & 6.2\% \\
-Cybersecurity_Malware & 1,398 & 5.8\% \\
-Politically_Sensitive_Topics & 1,395 & 5.8\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{沙特 (SA) — 20,647 条，9 个标签}
-\begin{table}[h]\centering
-\caption{SA 多分类训练数据标签分布}
-\begin{tabular}{@{}lrr@{}}
-\toprule
-\textbf{标签} & \textbf{数量} & \textbf{占比} \\
-\midrule
-none & 6,245 & 30.2\% \\
-Hate_Speech & 5,747 & 27.8\% \\
-SA_State_Security_Royalty & 2,178 & 10.5\% \\
-Dangerous_Content & 1,237 & 6.0\% \\
-Harassment & 1,225 & 5.9\% \\
-Political & 1,151 & 5.6\% \\
-other_violation & 1,031 & 5.0\% \\
-SA_Religious_Violation & 1,030 & 5.0\% \\
-SA_LGBTQ_Content & 803 & 3.9\% \\
-\bottomrule
-\end{tabular}
-\end{table}
-\subsection{基座模型}
-
-所有模型使用 \textbf{microsoft/mdeberta-v3-base}，参数量 279M，
-支持 100+ 语言的多语言 DeBERTa 变体。
-
-\subsection{四种训练方法}
-
-\begin{enumerate}[itemsep=3pt]
-\item \textbf{全量微调 (Full FT)}: 所有参数参与训练，精度最高，
-但每国需要 1.1GB 独立模型存储。
-\begin{verbatim}
-learning_rate = 1e-5, epochs = 5 (early stopping)
-batch_size = 4, grad_accum = 4
-optimizer = AdamW + class-weighted CrossEntropyLoss
-\end{verbatim}
-
-\item \textbf{LoRA 微调 (PEFT)}: 低秩适配，仅训练 0.21\% 参数 (~600K)，
-适配器大小 $\sim$3MB。
-\begin{verbatim}
-LoraConfig(r=16, alpha=32, dropout=0.1,
-           target_modules=["query_proj","value_proj"])
-learning_rate = 5e-5, epochs = 5
-\end{verbatim}
-
-\item \textbf{Multi-LoRA 共享}: 一个基座 (1.1GB) + 8 国 LoRA 适配器 (2MB/国)，
-通过 \texttt{PeftModel.from\_pretrained} 热切换国家。
-\begin{verbatim}
-LoraConfig(r=8, alpha=16, dropout=0.1)
-learning_rate = 2e-4, epochs = 5
-\end{verbatim}
-
-\item \textbf{Adapter 瓶颈适配器}: 在 Transformer 层间插入 bottleneck adapter，
-训练 0.5\% 参数，适配器 $\sim$2.5MB。精度最低但训练最快。
-\begin{verbatim}
-learning_rate = 1e-4, epochs = 3
-batch_size = 32
-\end{verbatim}
-\end{enumerate}
-
-\subsection{多分类训练方法}
-
-多分类模型统一使用以下配方，经过 ID 模型 6 个版本迭代验证：
-
-\begin{verbatim}
-LoRA: r=16, alpha=32, dropout=0.1, target=["query_proj","value_proj"]
-Loss: CrossEntropyLoss(label_smoothing=0.05)
-Optimizer: AdamW, lr=2e-4, warmup=100 steps
-Epochs: 3, Train batch=16, Eval batch=64, max_length=256
-Post-processing: per-class grid search threshold + Nelder-Mead joint optimization
-Hardware: AMD RX 9070 XT (17GB VRAM) + ROCm 7.2
-Training speed: ~1.3 it/s (LoRA on AMD ROCm)
-\end{verbatim}
-
-\subsection{蒸馏方法 (已弃用)}
-
-在 ID v2 中尝试了 Label Smoothing Distillation (LSD)，
-使用 Full FT teacher 模型指导 LoRA student 训练：
-
-\begin{verbatim}
-T = 3.0, alpha = 0.4, label_smoothing = 0.05
-loss = alpha*CE(ls) + (1-alpha)*KL(teacher/T, student/T)*T^2
-\end{verbatim}
-
-\textbf{结论}: LSD 提升有限 (+0.005 以内)，训练速度慢 5 倍 (1.3 vs 7.4 it/s)，不推荐使用。
 
 % ════════════════════════════════════════════════════
-\section{二分类模型全面对比}
+\section{各国家多分类训练数据分布}
 
-\subsection{整体对比}
+多分类训练数据由三部分组成:
+\textbf{data\_v2 标签映射}(基础)、\textbf{Nine\_country safe 样本}(补充安全内容)、
+\textbf{NIM API 生成}(补充弱势类别)。
+
+% Include the label distribution tables
+\input{_tables_mc_dist.tex}
+
+% ════════════════════════════════════════════════════
+\section{训练方法详述}
+
+\subsection{全量微调 (Full Fine-Tuning)}
+
+全量微调是精度最高的方法——所有 279M 参数参与训练。
+
+\textbf{训练配置:}
+\begin{verbatim}
+learning_rate = 1e-5
+epochs = 5 (early stopping patience=3, monitor=eval_loss)
+per_device_train_batch_size = 4
+gradient_accumulation_steps = 4  # effective batch = 16
+max_grad_norm = 0.5
+weight_decay = 0.01, warmup_ratio = 0.1
+lr_scheduler = "cosine", max_length = 256
+precision = FP32
+loss = CrossEntropyLoss(weight=class_weights)
+\end{verbatim}
+
+由于二分类数据中 safe/violation 比例不均衡，使用类别加权的交叉熵损失:
+\[ \mathcal{L} = -\frac{1}{N}\sum_{i=1}^N w_{y_i} \log P(y_i|x_i) \]
+其中 $w_0 = N/(2N_0)$ (safe 权重), $w_1 = N/(2N_1)$ (violation 权重)。
+
+\subsection{LoRA 微调 (Low-Rank Adaptation)}
+
+LoRA 通过在预训练权重上添加低秩分解矩阵实现参数高效微调:
+\[ h = W_0 x + \frac{\alpha}{r} \cdot BA x \]
+其中 $B \in \mathbb{R}^{d \times r}$, $A \in \mathbb{R}^{r \times k}$, rank $r=16 \ll \min(d,k)$。
+
+\textbf{训练配置 (二分类):}
+\begin{verbatim}
+LoraConfig(r=16, lora_alpha=32, lora_dropout=0.1,
+           target_modules=["query_proj", "value_proj"])
+learning_rate = 5e-5, epochs = 5
+per_device_train_batch_size = 16
+precision = BF16
+\end{verbatim}
+
+\textbf{训练配置 (多分类):}
+\begin{verbatim}
+LoraConfig(r=16, lora_alpha=32, lora_dropout=0.1)
+learning_rate = 2e-4, epochs = 3
+per_device_train_batch_size = 16
+max_length = 256
+label_smoothing = 0.05
+\end{verbatim}
+
+\subsection{Label Smoothing 损失 (多分类)}
+
+Label Smoothing 将 one-hot 标签"软化"为平滑分布，防止过拟合:
+\[ \mathcal{L}_{LS} = -\sum_{c=1}^C \tilde{y}_c \log P(c|x) \]
+其中 $\tilde{y}_c = (1-\epsilon) \cdot y_c + \epsilon/C$, $\epsilon = 0.05$。
+
+Label Smoothing 在几乎所有多分类模型上稳定优于普通交叉熵 (+0.01--0.02 Macro F1)。
+
+\subsection{Threshold Calibration (后处理优化)}
+
+训练完成后，为每个类别独立优化分类阈值以最大化 Macro F1:
+\[ \hat{y} = \arg\max_c \frac{P(c|x)}{t_c} \]
+
+优化过程:
+\begin{enumerate}
+\item 对每个类别，在 $[0.02, 0.98]$ 以 0.02 步长搜索最优 $t_c$ (最大化 Macro F1)
+\item 使用 Nelder-Mead 算法联合优化所有阈值
+\end{enumerate}
+
+Threshold calibration 在所有模型上稳定提供 +0.01--0.02 的提升。
+
+\subsection{LSD 蒸馏 (已弃用)}
+
+ID v2 中尝试了 Label Smoothing Distillation:
+\[ \mathcal{L} = \alpha \cdot \text{CE}(ls=0.05) + (1-\alpha) \cdot \text{KL}(P_T/T \| P_S/T) \cdot T^2 \cdot w \]
+($T=3.0$, $\alpha=0.4$)。提升有限 (+0.005)，训练慢 5 倍 (KL 散度开销)，不推荐。
+
+% ════════════════════════════════════════════════════
+\section{二分类模型结果}
+
+\subsection{8 国 $\times$ 4 种方法对比}
+
+图~\ref{fig:bin-all} 展示了 8 个国家 $\times$ 4 种方法的全面对比。
 
 \begin{figure}[h]\centering
-\includegraphics[width=\textwidth]{charts/01_binary_comparison_cn.png}
-\caption{8 国 × 4 种方法的二分类 Macro F1 对比}\label{fig:bin-all}
+\includegraphics[width=\textwidth]{01_binary_comparison_cn.png}
+\caption{8 国 $\times$ 4 种方法二分类 Macro F1 对比。全量微调 (绿) 在所有国家都表现最优，平均领先 LoRA +0.044}\label{fig:bin-all}
 \end{figure}
 
-\begin{table}[h]\centering
-\caption{二分类 — 全量微调 (Full FT) 完整结果}\label{tab:bin-ft}
-\small
-\begin{tabular}{@{}lrrrrrrr@{}}
-\toprule
-\textbf{国家} & \textbf{Acc} & \textbf{Macro F1} & \textbf{Clean P} & \textbf{Clean R} & \textbf{Viol P} & \textbf{Viol R} & \textbf{Viol F1} \\
-\midrule
-SG & 0.919 & 0.881 & 0.950 & 0.945 & 0.806 & 0.821 & 0.814 \\
-SA & 0.877 & 0.874 & 0.845 & 0.859 & 0.900 & 0.890 & 0.895 \\
-TH & 0.875 & 0.868 & 0.812 & 0.862 & 0.915 & 0.882 & 0.898 \\
-BR & 0.865 & 0.829 & 0.939 & 0.878 & 0.688 & 0.825 & 0.750 \\
-MX & 0.863 & 0.850 & 0.913 & 0.876 & 0.777 & 0.838 & 0.806 \\
-TR & 0.862 & 0.827 & 0.741 & 0.757 & 0.909 & 0.901 & 0.905 \\
-ID & 0.857 & 0.857 & 0.865 & 0.848 & 0.849 & 0.866 & 0.857 \\
-ZA & 0.849 & 0.841 & 0.789 & 0.824 & 0.889 & 0.865 & 0.877 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\subsection{全量微调 (Full FT) -- 8 国完整结果}
+
+\input{_tables_ft.tex}
+
+\subsection{LoRA 微调 -- 8 国完整结果}
+
+\input{_tables_lora.tex}
+
+\subsection{四种方法对比}
 
 \begin{table}[h]\centering
-\caption{二分类 — LoRA (PEFT) 完整结果}\label{tab:bin-lora}
-\small
-\begin{tabular}{@{}lrrrrrrr@{}}
-\toprule
-\textbf{国家} & \textbf{Acc} & \textbf{Macro F1} & \textbf{Clean P} & \textbf{Clean R} & \textbf{Viol P} & \textbf{Viol R} & \textbf{Viol F1} \\
-\midrule
-SG & 0.886 & 0.842 & 0.951 & 0.900 & 0.697 & 0.832 & 0.759 \\
-SA & 0.836 & 0.829 & 0.822 & 0.768 & 0.844 & 0.883 & 0.863 \\
-TH & 0.840 & 0.828 & 0.791 & 0.774 & 0.868 & 0.879 & 0.873 \\
-ID & 0.828 & 0.828 & 0.862 & 0.785 & 0.800 & 0.872 & 0.835 \\
-BR & 0.829 & 0.795 & 0.946 & 0.821 & 0.608 & 0.855 & 0.710 \\
-ZA & 0.799 & 0.791 & 0.710 & 0.798 & 0.866 & 0.800 & 0.832 \\
-TR & 0.819 & 0.784 & 0.640 & 0.764 & 0.905 & 0.839 & 0.871 \\
-MX & 0.785 & 0.771 & 0.882 & 0.778 & 0.649 & 0.799 & 0.716 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{违规召回率排名}
-
-\begin{table}[h]\centering
-\caption{违规召回率 TOP 10 (漏判越少越好)}\label{tab:viol-recall}
-\begin{tabular}{@{}lrrr@{}}
-\toprule
-\textbf{排名} & \textbf{国家/方法} & \textbf{Viol Recall} & \textbf{Viol F1} \\
-\midrule
-1 & SA Multi-LoRA & 0.983 & 0.946 \\
-2 & ZA Multi-LoRA & 0.960 & 0.911 \\
-3 & ID Multi-LoRA & 0.957 & 0.923 \\
-4 & BR Multi-LoRA & 0.955 & 0.919 \\
-5 & TH Multi-LoRA & 0.950 & 0.923 \\
-6 & MX Multi-LoRA & 0.949 & 0.917 \\
-7 & TR Full FT & 0.901 & 0.905 \\
-8 & SA Full FT & 0.890 & 0.895 \\
-9 & TH Full FT & 0.882 & 0.898 \\
-10 & ZA Full FT & 0.865 & 0.877 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\textit{注: Multi-LoRA 的违规召回率普遍最高，但这是以牺牲 Clean Recall 为代价的
-——Multi-LoRA 倾向于将所有内容判为违规，导致大量安全内容误报。}
-
-\subsection{四种方法平均值对比}
-
-\begin{table}[h]\centering
-\caption{二分类 — 四种方法 8 国平均值}\label{tab:avg}
-\begin{tabular}{@{}lrrrl@{}}
-\toprule
-\textbf{方法} & \textbf{Avg Acc} & \textbf{Avg Macro F1} & \textbf{每国大小} & \textbf{适用场景} \\
-\midrule
+\caption{四种方法 8 国平均值对比}\label{tab:method-compare}
+\begin{tabular}{@{}lrrrl@{}}\toprule
+\textbf{方法} & \textbf{Avg Acc} & \textbf{Avg Macro F1} & \textbf{每国大小} & \textbf{适用场景} \\\midrule
 Full FT & 0.853 & \textbf{0.853} & 1.1GB & 生产环境，精度优先 \\
-LoRA & 0.814 & 0.809 & 3MB & 快速部署，接近 FT \\
-Multi-LoRA & 0.860 & 0.796 & 2MB & 多国服务，省空间 \\
+LoRA (r=16) & 0.814 & 0.809 & 3MB & 快速部署，接近 FT \\
+Multi-LoRA (r=8) & 0.860 & 0.796 & 2MB & 多国服务，省空间 \\
 Adapter & 0.849 & 0.769 & 2.5MB & 快速原型 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+\subsection{关键发现}
+
+\begin{enumerate}[itemsep=2pt]
+\item 全量微调在所有 8 国中都是最优方法，平均领先 LoRA +0.044 Macro F1。
+\item 新加坡 (SG) 表现最佳 (Full FT Acc 0.919, 数据量 102K)。
+\item Multi-LoRA 违规召回率最高 (SA: 0.983)，但 Clean Recall 低——倾向将内容判为违规。
+\item 墨西哥 (MX) 的 LoRA 退化最严重 (-0.079)，可能因西班牙语数据分布与预训练语料差异大。
+\end{enumerate}
+
 % ════════════════════════════════════════════════════
-\section{多分类模型全面对比}
+\section{多分类模型结果}
 
 \subsection{整体排名}
 
+图~\ref{fig:mc-rank} 和图~\ref{fig:heatmap} 展示了多分类模型对比。
+
 \begin{figure}[h]\centering
-\includegraphics[width=0.85\textwidth]{charts/02_multiclass_ranking_cn.png}
-\caption{多分类模型 Macro F1 排名}\label{fig:mc-rank}
+\includegraphics[width=0.85\textwidth]{02_multiclass_ranking_cn.png}
+\caption{多分类模型 Macro F1 排名。泰国 (0.744) 高于印尼 (0.732)，可能因为标签更少 (8 vs 9) 且数据噪音更低}\label{fig:mc-rank}
+\end{figure}
+
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{03_multiclass_heatmap_cn.png}
+\caption{各标签 $\times$ 各国 F1 热力图。绿色=高 F1，红色=低 F1。NIM 生成的标签得分普遍较高；国家特有标签得分较低}\label{fig:heatmap}
 \end{figure}
 
 \begin{table}[h]\centering
-\caption{多分类模型结果汇总}\label{tab:mc-results}
-\begin{tabular}{@{}lrrrl@{}}
-\toprule
-\textbf{国家} & \textbf{标签数} & \textbf{训练量} & \textbf{Macro F1} & \textbf{训练方法} \\
-\midrule
+\caption{多分类模型结果汇总}\label{tab:mc-summary}
+\begin{tabular}{@{}lrrrl@{}}\toprule
+\textbf{国家} & \textbf{标签数} & \textbf{训练量} & \textbf{Macro F1} & \textbf{训练方法} \\\midrule
 沙特 (SA) & 8 & $\sim$15K & \textbf{0.829} & 全量微调 \\
 泰国 (TH) & 8 & 17,751 & \textbf{0.744} & LoRA LS + cal \\
 印尼 (ID v6) & 9 & 45,753 & \textbf{0.732} & LoRA LS + cal \\
 新加坡 (SG) & 9 & 25,543 & \textbf{0.704} & LoRA LS + cal \\
-南非 (ZA) & 9 & 21,329 & \textbf{0.589} & LoRA LS + cal \\
+南非 (ZA v2) & 9 & 24,259 & \textbf{0.696} & LoRA LS + cal (NIM 补充)\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{各标签 F1 热力图}
+\subsection{各国各类别详细结果}
 
-\begin{figure}[h]\centering
-\includegraphics[width=\textwidth]{charts/03_multiclass_heatmap_cn.png}
-\caption{各标签 × 各国 F1 热力图 (绿=好, 红=差)}\label{fig:heatmap}
-\end{figure}
-
-\subsection{印尼 (ID) — 最优模型详细结果}
-
-印尼模型经过 6 个版本迭代，v6 达到最佳效果。
-
-\begin{table}[h]\centering
-\caption{ID v6 — 各类别完整结果}\label{tab:id-v6}
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-\textbf{标签} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} & \textbf{Support} \\
-\midrule
-Political & 1.000 & 0.855 & 0.922 & 145 \\
-ID\_Blasphemy & 0.974 & 0.881 & 0.925 & 168 \\
-safe & 0.787 & 0.793 & 0.790 & 2,088 \\
-Sexually\_Explicit & 0.751 & 0.778 & 0.764 & 654 \\
-Hate\_Speech & 0.810 & 0.599 & 0.689 & 866 \\
-Dangerous\_Content & 0.714 & 0.747 & 0.730 & 982 \\
-ID\_SARA & 0.674 & 0.624 & 0.648 & 822 \\
-Harassment & 0.496 & 0.618 & 0.551 & 1,053 \\
-other\_violation & 0.662 & 0.506 & 0.573 & 85 \\
-\hline
-\textbf{Overall} & — & — & \textbf{0.732} & 6,863 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{泰国 (TH) — 详细结果}
-
-\begin{table}[h]\centering
-\caption{TH — 各类别完整结果}\label{tab:th}
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-\textbf{标签} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} \\
-\midrule
-Hate\_Speech & 0.936 & 0.982 & 0.959 \\
-Sexually\_Explicit & 0.934 & 0.853 & 0.892 \\
-safe & 0.863 & 0.888 & 0.875 \\
-TH\_Lese\_Majeste & 0.792 & 0.814 & 0.803 \\
-Harassment & 0.865 & 0.722 & 0.787 \\
-Dangerous\_Content & 0.630 & 0.793 & 0.702 \\
-Cybersecurity\_Malware & 0.754 & 0.422 & 0.541 \\
-Politically\_Sensitive & 0.465 & 0.341 & 0.393 \\
-\hline
-\textbf{Overall} & — & — & \textbf{0.744} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{新加坡 (SG) — 详细结果}
-
-\begin{table}[h]\centering
-\caption{SG — 各类别完整结果}\label{tab:sg}
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-\textbf{标签} & \textbf{Precision} & \textbf{Recall} & \textbf{F1} \\
-\midrule
-Politically\_Sensitive & 0.990 & 0.997 & 0.993 \\
-Hate\_Speech & 0.953 & 0.999 & 0.975 \\
-safe & 0.865 & 0.828 & 0.846 \\
-Dangerous\_Content & 0.772 & 0.791 & 0.781 \\
-Sexually\_Explicit & 0.763 & 0.708 & 0.734 \\
-Harassment & 0.759 & 0.683 & 0.719 \\
-SG\_Racial\_Religious & 0.516 & 0.492 & 0.504 \\
-SG\_Vulgarity\_Singlish & 0.363 & 0.513 & 0.425 \\
-Cybersecurity\_Malware & 0.394 & 0.333 & 0.361 \\
-\hline
-\textbf{Overall} & — & — & \textbf{0.704} \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{_tables_perclass.tex}
 
 % ════════════════════════════════════════════════════
-\section{模型演进: 印尼 ID v1 → v6}
 
-\begin{figure}[h]\centering
-\includegraphics[width=0.9\textwidth]{charts/04_id_evolution_cn.png}
-\caption{ID 模型 6 版本演进路线}\label{fig:id-evo}
-\end{figure}
+\section{南非 (ZA) 模型演进}
 
-印尼模型经历了最完整的迭代优化:
+与印尼类似，南非的弱势标签 (ZA\_Severe\_Racism, ZA\_Xenophobia)
+在 v1 中表现极差，通过 NIM 数据生成补充后显著提升。
+图~\ref{fig:za-improve} 展示了 v1 到 v2 的各类别 F1 变化。
 
+\input{_tables_za_v2.tex}
+
+\textbf{关键发现:}
 \begin{enumerate}[itemsep=2pt]
-\item \textbf{v1 (38K, 8-class)}: Full FT (0.692) 和 LoRA (0.690) 基线
-\item \textbf{v2 (38K, 9-class)}: LSD 蒸馏尝试，F1 0.684，无明显提升
-\item \textbf{v3}: 陪审团 relabeling，修正 ID\_SARA/Harassment 混淆
-\item \textbf{v4}: NIM 生成 2,500 条 ID\_SARA 数据，ID\_SARA F1: 0.42 → 0.62
-\item \textbf{v5 (42K)}: 2-seed LoRA LS ensemble + threshold calibration，F1 0.709
-\item \textbf{v6 (46K)}: 补充 Dangerous\_Content (+2,000) + Hate\_Speech (+1,500)，
-\textbf{F1 0.732}
+\item ZA\_Severe\_Racism (+0.556) 和 ZA\_Xenophobia (+0.437) 的提升幅度甚至超过了 ID\_SARA (+0.20)，因为 v1 的基线极低 (0.12 和 0.21)
+\item 这意味着 NIM 生成的小样本补充数据对"从零开始"的弱势类别特别有效
+\item 但 Dangerous\_Content ($-$0.022) 略有下降，可能与新数据引入的分布偏移有关
 \end{enumerate}
 
-\textbf{核心经验}: NIM API 数据生成是提升弱势类别的最有效手段。
+\section{印尼 (ID) 模型演进}
+
+
+印尼模型经历了最完整的 6 版本迭代优化。
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.9\textwidth]{04_id_evolution_cn.png}
+\caption{ID 模型从 v1 到 v6 的演进路线。每次 NIM 数据生成都带来显著提升}\label{fig:id-evo}
+\end{figure}
+
+\textbf{演进关键节点:}
+\begin{enumerate}[itemsep=2pt]
+\item \textbf{v1 (38K, 8-class)}: Full FT (0.692) 和 LoRA (0.690) 基线。
+\item \textbf{v2 (38K, 9-class)}: LSD 蒸馏，0.684。训练慢 5 倍，弃用。
+\item \textbf{v3}: 3 个 NIM 陪审员模型验证 300 个混淆样本，修正 ID\_SARA/Harassment 标签。
+\item \textbf{v4}: NIM 生成 2,500 条 ID\_SARA。ID\_SARA F1: 0.42 $\to$ 0.62 (+0.20)。
+\item \textbf{v5 (42K)}: 2-seed LoRA LS ensemble + threshold cal，F1 0.709。
+\item \textbf{v6 (46K)}: +2,000 Dangerous +1,500 Hate\_Speech，\textbf{F1 0.732}。
+\end{enumerate}
+
+\begin{figure}[h]\centering
+\includegraphics[width=0.85\textwidth]{06_data_augmentation_impact_cn.png}
+\caption{NIM 数据生成对弱势类别的提升效果}\label{fig:augment}
+\end{figure}
 
 % ════════════════════════════════════════════════════
 \section{综合仪表盘}
 
 \begin{figure}[h]\centering
-\includegraphics[width=\textwidth]{charts/05_dashboard_cn.png}
-\caption{综合仪表盘 — 6 个维度全面对比}\label{fig:dashboard}
+\includegraphics[width=\textwidth]{05_dashboard_cn.png}
+\caption{综合仪表盘——6 个维度全面对比}\label{fig:dashboard}
 \end{figure}
 
-\subsection{关键发现}
+% ════════════════════════════════════════════════════
+\section{关键发现与经验总结}
 
 \begin{enumerate}[itemsep=3pt]
-\item \textbf{全量微调在所有二分类任务中都是最优方法}，
-平均 Macro F1 达到 0.853，比 LoRA 高 0.044，比 Adapter 高 0.084。
-\item \textbf{Multi-LoRA 违规召回率最高}但安全内容召回率低，
-倾向于将所有内容判为违规，容易误报。
-\item \textbf{多分类中泰国 (TH) 表现意外好于印尼 (ID)}，
-可能因为标签更少 (8 vs 9) 且数据标注质量更高。
-\item \textbf{NIM 数据生成是最有效的模型改进手段}，
-ID\_SARA (+0.23)、Dangerous (+0.15)、Hate\_Speech (+0.09)。
-\item \textbf{LSD 蒸馏不推荐}，训练慢 5 倍但提升不足 0.01。
-\item \textbf{Label Smoothing (0.05) 稳定优于普通 CrossEntropy}。
-\item \textbf{Threshold calibration 提供 +0.01-0.02 的免费提升}。
-\item \textbf{模型存储效率}: LoRA 适配器仅 2.4MB，
-比全量微调 (1.1GB) 小 460 倍，适合多国部署。
+\item \textbf{全量微调是二分类最佳方法}: 在所有 8 国中 Full FT 都显著优于 PEFT 方法。
+\item \textbf{NIM 数据生成是最有效的改进手段}: ID\_SARA +0.23, Dangerous +0.15, Hate\_Speech +0.09。
+\item \textbf{Label Smoothing (0.05) 稳定优于普通 CE}: +0.01--0.02 的免费提升。
+\item \textbf{Threshold Calibration 稳定提供 +0.01--0.02}: 对所有模型有效。
+\item \textbf{LSD 蒸馏不推荐}: 训练慢 5 倍，提升不足 0.01。
+\item \textbf{生成数据可能过拟合}: ZA Political (0.99) 和 TH Hate\_Speech (0.96) 的接近完美 F1
+暗示模型学会了 NIM 生成的模式而非真正违规特征。
+\item \textbf{LoRA 适配器降低 460 倍部署成本}: 2.4MB vs 1.1GB。
 \end{enumerate}
-
-% ════════════════════════════════════════════════════
-\section{模型部署}
-
-\subsection{HuggingFace Hub}
-
-所有模型已上传至 HuggingFace Hub:
-\url{https://huggingface.co/jianqiang0213}
-
-\begin{table}[h]\centering
-\caption{HF 模型命名规则}\label{tab:hf-names}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{类型} & \textbf{Repo ID} \\
-\midrule
-二分类 Full FT & \texttt{mdeberta-v3-\{COUNTRY\}-binary-fullft} \\
-二分类 LoRA & \texttt{mdeberta-v3-\{COUNTRY\}-binary-lora} \\
-二分类 Multi-LoRA & \texttt{mdeberta-v3-\{COUNTRY\}-binary-multilora} \\
-多分类 LoRA & \texttt{mdeberta-v3-\{COUNTRY\}-multiclass-lora} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsection{使用方法}
-
-\subsubsection{二分类 Full FT}
-
-\begin{verbatim}
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
-model = AutoModelForSequenceClassification.from_pretrained(
-    "jianqiang0213/mdeberta-v3-SG-binary-fullft"
-)
-tokenizer = AutoTokenizer.from_pretrained(
-    "jianqiang0213/mdeberta-v3-SG-binary-fullft"
-)
-\end{verbatim}
-
-\subsubsection{二分类 LoRA (PEFT)}
-
-\begin{verbatim}
-from peft import PeftModel
-base = AutoModelForSequenceClassification.from_pretrained(
-    "microsoft/mdeberta-v3-base", num_labels=2)
-model = PeftModel.from_pretrained(
-    base, "jianqiang0213/mdeberta-v3-SG-binary-lora")
-\end{verbatim}
-
-\subsubsection{多分类 LoRA}
-
-\begin{verbatim}
-base = AutoModelForSequenceClassification.from_pretrained(
-    "microsoft/mdeberta-v3-base", num_labels=9)
-model = PeftModel.from_pretrained(
-    base, "jianqiang0213/mdeberta-v3-ID-v6-multiclass-lora")
-\end{verbatim}
 
 % ════════════════════════════════════════════════════
 \section{未来工作}
 
 \begin{enumerate}[itemsep=2pt]
-\item \textbf{补充弱势类别数据}: ZA\_Xenophobia (F1=0.21) 和 ZA\_Severe\_Racism
-(F1=0.12) 急需 NIM 生成补充 (类似 ID\_SARA 策略)
-\item \textbf{扩展覆盖国家}: 巴西 (BR)、墨西哥 (MX)、土耳其 (TR) 的多分类模型尚未训练
-\item \textbf{Multi-LoRA 多分类}: 将二分类 Multi-LoRA 架构升级为多分类，
-实现一个基座服务 8 国 9 类违规检测
-\item \textbf{模型集成}: 增加 seed 数量到 3 个以上，使用 soft voting 提升稳定性
-\item \textbf{实际部署测试}: 在真实流量上进行 A/B 测试，验证离线指标与实际效果的一致性
-\item \textbf{泰国和新加坡的 NIM 生成标签过拟合问题}: Political/Hate\_Speech 的
-接近完美的 F1 表明这些标签存在 NIM 生成数据的特征泄露，需要用真实标注数据验证
+\item \textbf{ZA 重训 (v2)}: 补充 ZA\_Xenophobia (+2,500) 和 ZA\_Severe\_Racism (+2,500) 后重训。
+\item \textbf{BR/MX/TR 多分类}: data\_v2 标签映射已就绪，可快速启动。
+\item \textbf{Multi-LoRA 多分类升级}: 一个基座服务 8 国多类违规检测。
+\item \textbf{消除 NIM 生成数据的分布偏差}: 用陪审团验证过滤低质量样本。
 \end{enumerate}
-
-% ════════════════════════════════════════════════════
-\section*{附录: 模型文件索引}
-
-\begin{verbatim}
-Training/model_reports/
-├── binary/           # 二分类报告 (32 模型 × 4 方法)
-│   ├── fullft/       #   Full FT (8 国)
-│   ├── lora/         #   LoRA PEFT (8 国)
-│   ├── multilora/    #   Multi-LoRA (8 国)
-│   ├── adapter/      #   Adapter (8 国)
-│   ├── shared/       #   架构对比
-│   └── usage_guide.py
-├── multiclass/       # 多分类报告 (5 国)
-│   ├── id/           #   ID 6 版本演进
-│   ├── sa/           #   SA 8-class FT
-│   ├── sg/           #   SG 9-class
-│   ├── th/           #   TH 8-class
-│   └── za/           #   ZA 9-class
-└── charts/           # 对比图表 (6 张)
-\end{verbatim}
-
-\vspace{1cm}
-\begin{center}
-\large\textbf{—— 完 ——}
-\end{center}
 
 \end{document}
